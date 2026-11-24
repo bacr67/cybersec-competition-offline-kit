@@ -1,0 +1,40 @@
+# Скрипты модуля Г — первичный DFIR
+
+Результаты сохраняй отдельно от исходных доказательств.
+
+## Манифест диска и сегментов
+
+~~~powershell
+.\Г_Форензика_и_ВПО\Скрипты\Get-DiskImageManifest.ps1 -Path 'E:\case\evidence\disk.E01' -OutDir 'E:\case\work\manifest'
+~~~
+
+Для папки сегментов укажи саму папку. -SkipHash ускоряет работу, но SHA-256 не будет.
+
+## Статический триаж файлов
+
+~~~powershell
+.\Г_Форензика_и_ВПО\Скрипты\Get-SampleStaticTriage.ps1 -Path 'E:\case\evidence\files' -OutDir 'E:\case\work\static'
+~~~
+
+Создаёт CSV и сводку. Скрипт не запускает образцы; найденные строки и сигнатура — признаки для ручной проверки.
+
+## Отчёт по образу
+
+~~~powershell
+.\Г_Форензика_и_ВПО\Скрипты\Собрать_первичный_отчёт_по_образу.ps1 -ImagePath 'E:\case\evidence\disk.E01' -OutputDirectory 'E:\case\work\disk' -CaseName 'Задание 1'
+~~~
+
+В отчёт попадают манифест, выводы Sleuth Kit, кандидаты и первичная HTML/Markdown сводка. Параметры -SkipHash, -MetadataOnly, -Offset, -SectorSize, -TimeZone, -ImageType применяй только по описанию. Offset измеряется секторами. Сначала проверь mmls, не угадывай timezone. Скрипт не разбирает содержимое всех файлов и офлайн hive.
+
+## Отчёт по дампу RAM
+
+~~~powershell
+.\Г_Форензика_и_ВПО\Скрипты\Собрать_первичный_отчёт_по_RAM.ps1 -MemoryPath 'E:\case\evidence\memory.raw' -OutputRoot 'E:\case\work\ram'
+~~~
+
+Использует локальный wheelhouse Python/Volatility, запускает основные плагины. При проблемах с символами зафиксируй ошибку; -AllowSymbolDownload только если интернет разрешён и нужен.
+
+## Читать отчёт
+
+Сверь вход, размер, SHA-256, версию, команду, timezone. Найди ошибки и пустые выводы. Кандидаты — эвристики, не автоматический диагноз. Каждый важный результат проверь Autopsy, Sleuth Kit, Registry Explorer или независимым парсером. В отчёте напиши ограничения и следующий шаг.
+
