@@ -1,11 +1,3 @@
-# Шпаргалка по Sigma
-
-Правило Sigma — переносимое описание обнаружения, а не готовый запрос, который можно сразу выполнить. Перед применением подставьте реальные поля и преобразуйте правило в синтаксис своей платформы.
-
-Поиск локальных примеров в PowerShell:
-
-```powershell
-rg -n -i "powershell.*encoded|scheduled task|service install" .\Инструменты\SigmaHQ-rules\sigma-master\rules
-```
-
-Проверьте разделы `logsource`, `detection`, `condition`, `falsepositives`, `level` и `tags`. Метки `tags` могут содержать ATT&CK. Для преобразования Sigma нужны pySigma и модуль нужной платформы; без интернета заранее подготовьте установочные пакеты либо перепишите правило в синтаксис SIEM вручную. До включения проверьте тестовые события и похожую штатную активность.
+version https://git-lfs.github.com/spec/v1
+oid sha256:6a8e45fa7359fd73bff96735f70e857ebe27e2a8fa4991cd967c72f8fc43aa95
+size 1191

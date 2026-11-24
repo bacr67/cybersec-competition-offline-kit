@@ -1,12 +1,3 @@
-# Шпаргалка по Sysinternals
-
-Утилиты расположены рядом в `Sysinternals\`.
-
-- `strings.exe -n 6 sample.exe` — читаемые ASCII/Unicode строки; индикатор, не вердикт.
-- `sigcheck.exe -nobanner -a -h sample.exe` — подпись, версия и hash.
-- `autorunsc.exe -accepteula -a * -c -h` — автозапуск в CSV (проверяйте подозрительные пути/подписи).
-- Process Explorer: дерево процессов, родитель, подпись, DLL/handles.
-- TCPView: PID ↔ соединение/порт.
-- Procmon: фильтр по PID/path/operation для наблюдения активности в разрешённой среде.
-
-Для offline evidence используйте копии; не удаляйте и не отключайте найденные записи до фиксации доказательств и разрешения организатора.
+version https://git-lfs.github.com/spec/v1
+oid sha256:e24faac85075c95f8f48176a0d609cd07962f66b52b2e274f613ebff070fc8f8
+size 996

@@ -1,5 +1,3 @@
-# Шпаргалка по CyberChef
-
-Откройте локальный standalone HTML в `CyberChef_v11.6.0\` браузером. Входные данные слева, операции в Recipe, результат справа. Включите Bake; меняйте по одной операции и сохраняйте промежуточный результат.
-
-Частые рецепты: From Hex → Decode text; From Base64 → Decode text; URL Decode; ROT13; XOR Brute Force для коротких учебных строк; Gunzip; Magic для распознавания формата. Не отправляйте материал в облачный сайт; локальная версия работает без сети. Hash functions только считают digest, не расшифровывают его.
+version https://git-lfs.github.com/spec/v1
+oid sha256:1be6bf93c03204f24781af67f36543e019f4bfb8747c5457ac1164ba39695a42
+size 846
