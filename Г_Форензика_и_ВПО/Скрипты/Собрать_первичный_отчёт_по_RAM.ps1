@@ -63,7 +63,7 @@ if (-not (Test-Path -LiteralPath $volatility)) {
 }
 
 $hash = (Get-FileHash -LiteralPath $memory -Algorithm SHA256).Hash
-$pluginNames = @('windows.info','windows.pslist','windows.psscan','windows.netscan','windows.cmdline','windows.malware.malfind','windows.dlllist','windows.filescan','windows.handles')
+$pluginNames = @('windows.info','windows.pslist','windows.psscan','windows.malware.psxview','windows.netscan','windows.cmdline','windows.malware.malfind','windows.ldrmodules','windows.svcscan','windows.registry.hivelist','windows.dlllist','windows.filescan','windows.handles')
 $results = [System.Collections.Generic.List[object]]::new()
  $previousPythonIoEncoding = $env:PYTHONIOENCODING
 try {
@@ -198,11 +198,13 @@ $report = @(
     '1. `windows.info`: проверьте ОС, архитектуру и время снимка; ошибка символов может мешать определению профиля.',
     '2. Сопоставьте `windows.pslist` и `windows.psscan`; различия требуют проверки, но не доказывают сокрытие процесса.',
     '3. `windows.netscan`: свяжите адреса/порты с PID и временем, если эти сведения доступны.',
-    '4. `windows.cmdline`: проверьте аргументы, временные каталоги, кодирование и родительский контекст.',
-    '5. `windows.malware.malfind`: рассматривайте найденные области как кандидаты; подтвердите их через процесс, модули, сеть и дампы.',
-    '6. `windows.filescan` ищет объекты файлов в памяти, а `windows.handles` показывает открытые процессами объекты; используйте их для подтверждения полного пути и владельца.',
-    '7. Сопоставьте PID с `windows.dlllist`, журналами, Prefetch/Amcache и образом диска. Не запускайте извлечённые файлы.',
-    '8. `-ScanMemoryStrings` включает потоковый поиск URL `.php` в ASCII и UTF-16LE строках; результаты являются подсказками и не привязаны автоматически к PID.',
+    '4. `windows.malware.psxview` сопоставляет способы обнаружения процессов; различия — повод проверить память объекта и родительскую цепочку.',
+    '5. `windows.cmdline`: проверьте аргументы, временные каталоги, кодирование и родительский контекст.',
+    '6. `windows.malware.malfind` и `windows.ldrmodules`: рассматривайте аномалии как кандидаты; подтвердите их через процесс, модули, сеть и дампы.',
+    '7. `windows.svcscan` и `windows.registry.hivelist` добавляют контекст служб и загруженных кустов реестра; сопоставьте их с образом диска и журналами.',
+    '8. `windows.filescan` ищет объекты файлов в памяти, а `windows.handles` показывает открытые процессами объекты; используйте их для подтверждения полного пути и владельца.',
+    '9. Сопоставьте PID с `windows.dlllist`, журналами, Prefetch/Amcache и образом диска. Не запускайте извлечённые файлы.',
+    '10. `-ScanMemoryStrings` включает потоковый поиск URL `.php` в ASCII и UTF-16LE строках; результаты являются подсказками и не привязаны автоматически к PID.',
     '',
     '## Ограничения','',
     'Плагин с ненулевым кодом не дал подтверждённого результата: прочитайте его `.txt`, проверьте формат дампа и доступность Windows symbols. Скрипт не определяет компрометацию автоматически; пустой вывод не доказывает чистоту памяти.',
