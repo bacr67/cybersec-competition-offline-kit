@@ -8,6 +8,7 @@
 <div id="modal" class="veil hide"><div><button id="x">×</button><h3>Сохранить запрос</h3><input id="name" placeholder="Название"><button id="confirm">Сохранить локально</button><div id="saved"></div></div></div><div id="toast" class="toast hide"></div>
 <script>
 let E=[];
+const $=id=>document.getElementById(id);
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function lex(s){let a=[],i=0;while(i<s.length){if(/\s/.test(s[i])){i++;continue}if("()".includes(s[i])){a.push(s[i++]);continue}let m=s.slice(i).match(/^(AND\b|OR\b|NOT\b)/i);if(m){a.push(m[1].toUpperCase());i+=m[0].length;continue}let j=i,q=false,bs=false;for(;j<s.length;j++){let c=s[j];if(c==='"'&&!bs)q=!q;if(/\s/.test(c)&&!q)break;if("()".includes(c)&&!q)break;bs=c==="\\"&&!bs;if(c!=="\\")bs=false}a.push(s.slice(i,j));i=j}return a}
 function parse(s){s=s.replace(/:\s+/g,":");let a=lex(s),i=0;if(!a.length)return {all:1};function atom(){if(a[i]==="("){i++;let x=or();if(a[i++]!==")")throw Error("Не закрыта скобка");return x}if(a[i]==="NOT"){i++;return {not:atom()}}let t=a[i++],p=t&&t.indexOf(":");if(!t||p<1||p===t.length-1)throw Error("Формат условия: поле: значение");let v=t.slice(p+1);if(v[0]==='"'&&v[v.length-1]==='"'){try{v=JSON.parse(v)}catch{v=v.slice(1,-1)}}return {f:t.slice(0,p),v:v}}function and(){let x=atom();while(a[i]==="AND"){i++;x={and:[x,atom()]}}return x}function or(){let x=and();while(a[i]==="OR"){i++;x={or:[x,and()]}}return x}let x=or();if(i<a.length)throw Error("Проверь оператор возле "+a[i]);return x}
