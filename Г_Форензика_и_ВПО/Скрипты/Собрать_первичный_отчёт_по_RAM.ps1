@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory=$true)][string]$MemoryPath,
     [Parameter(Mandatory=$true)][string]$OutputRoot,
     [string]$PythonExe,
-    [switch]$AllowSymbolDownload
+    [switch]$AllowSymbolDownload,
+    [switch]$ScanMemoryStrings
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,7 +63,7 @@ if (-not (Test-Path -LiteralPath $volatility)) {
 }
 
 $hash = (Get-FileHash -LiteralPath $memory -Algorithm SHA256).Hash
-$pluginNames = @('windows.info','windows.pslist','windows.psscan','windows.netscan','windows.cmdline','windows.malware.malfind','windows.dlllist')
+$pluginNames = @('windows.info','windows.pslist','windows.psscan','windows.netscan','windows.cmdline','windows.malware.malfind','windows.dlllist','windows.filescan','windows.handles')
 $results = [System.Collections.Generic.List[object]]::new()
  $previousPythonIoEncoding = $env:PYTHONIOENCODING
 try {
@@ -128,6 +129,51 @@ if (Test-Path -LiteralPath $netscanFile) {
         }
     }
 }
+$stringScanPath = Join-Path $run 'Кандидаты_URL_PHP.txt'
+$stringScanNote = 'Не запускался. Для поиска URL в строках дампа добавь параметр -ScanMemoryStrings.'
+if ($ScanMemoryStrings) {
+    $stringRegex = [regex]::new('https?://[^\s"''<>\x00]{1,500}\.php(?:\?[^\s"''<>\x00]{0,300})?', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $cleanUrlRegex = [regex]::new('^https?://[A-Za-z0-9.-]+(?::\d{1,5})?(?:/[A-Za-z0-9._~!$&''()*+,;=:@%/?#-]*)?\.php(?:\?[A-Za-z0-9._~!$&''()*+,;=:@%/?#-]*)?$', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $seenStrings = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $stringHits = [System.Collections.Generic.List[string]]::new()
+    $stream = [System.IO.File]::Open($memory, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $buffer = New-Object byte[] (4MB)
+        $chunkStart = [long]0
+        $tailAscii = ''
+        $tailWide = ''
+        while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $ascii = [System.Text.Encoding]::Latin1.GetString($buffer, 0, $read)
+            $wideLength = $read - ($read % 2)
+            $wide = [System.Text.Encoding]::Unicode.GetString($buffer, 0, $wideLength)
+            foreach ($encoding in @('ASCII','UTF16LE')) {
+                if ($encoding -eq 'ASCII') {
+                    $textChunk = $tailAscii + $ascii
+                    $baseOffset = $chunkStart - $tailAscii.Length
+                } else {
+                    $textChunk = $tailWide + $wide
+                    $baseOffset = $chunkStart - ($tailWide.Length * 2)
+                }
+                foreach ($match in $stringRegex.Matches($textChunk)) {
+                    $offset = if ($encoding -eq 'ASCII') { $baseOffset + $match.Index } else { $baseOffset + ($match.Index * 2) }
+                    $value = $match.Value.TrimEnd('.',',',';',')',']','}')
+                    if (-not $cleanUrlRegex.IsMatch($value)) { continue }
+                    $key = "$encoding|$offset|$value"
+                    if ($seenStrings.Add($key)) { $stringHits.Add("$encoding`t0x$('{0:X}' -f $offset)`t$value") }
+                }
+                if ($encoding -eq 'ASCII') { $tailAscii = $textChunk.Substring([Math]::Max(0, $textChunk.Length - 1024)) }
+                else { $tailWide = $textChunk.Substring([Math]::Max(0, $textChunk.Length - 512)) }
+            }
+            $chunkStart += $read
+        }
+    }
+    finally { $stream.Dispose() }
+    @('Кодировка`tСмещение`tКандидат URL PHP', ($stringHits | Sort-Object -Unique)) | Set-Content -LiteralPath $stringScanPath -Encoding UTF8
+    $stringScanNote = if ($stringHits.Count -gt 0) { "$($stringHits.Count) строк-кандидатов записано: $stringScanPath. Нужна ручная проверка контекста и процесса." } else { "Строк URL с .php не найдено; поиск был только по ASCII и UTF-16LE: $stringScanPath. Отсутствие строки не доказывает, что URL не посещался." }
+    foreach ($group in ($stringHits | ForEach-Object { $parts = $_ -split "`t",3; if ($parts.Count -eq 3) { $parts[2] } } | Group-Object)) {
+        $automaticCandidates.Add("- URL `.php` из строк RAM: ``$($group.Name)`` — найдено совпадений: $($group.Count); скрипт не связывает строку автоматически с PID или фактом посещения.")
+    }
+}
 $pythonVersion = (& $PythonExe @pythonArgsPrefix --version 2>&1 | Out-String).Trim()
 $report = @(
     '# Первичный отчёт по дампу памяти','',
@@ -139,6 +185,7 @@ $report = @(
     '- Volatility 3, версия 2.28.2 из локального wheelhouse.',
     "- Символы: $symbolNote",
     $(if ($offlineSymbolFailure) { '- Следующая попытка: повторите этот же скрипт с параметром `-AllowSymbolDownload`, только если сеть доступна и загрузка символов разрешена.' }),
+    "- Поиск URL `.php`: $stringScanNote",
     '- Исходный дамп не изменялся. Каждый вывод плагина сохранён отдельно.','',
     '## Плагины','',
     '| Плагин | Код завершения | Файл вывода |','|---|---:|---|',
@@ -153,7 +200,9 @@ $report = @(
     '3. `windows.netscan`: свяжите адреса/порты с PID и временем, если эти сведения доступны.',
     '4. `windows.cmdline`: проверьте аргументы, временные каталоги, кодирование и родительский контекст.',
     '5. `windows.malware.malfind`: рассматривайте найденные области как кандидаты; подтвердите их через процесс, модули, сеть и дампы.',
-    '6. Сопоставьте PID с `windows.dlllist`, журналами, Prefetch/Amcache и образом диска. Не запускайте извлечённые файлы.',
+    '6. `windows.filescan` ищет объекты файлов в памяти, а `windows.handles` показывает открытые процессами объекты; используйте их для подтверждения полного пути и владельца.',
+    '7. Сопоставьте PID с `windows.dlllist`, журналами, Prefetch/Amcache и образом диска. Не запускайте извлечённые файлы.',
+    '8. `-ScanMemoryStrings` включает потоковый поиск URL `.php` в ASCII и UTF-16LE строках; результаты являются подсказками и не привязаны автоматически к PID.',
     '',
     '## Ограничения','',
     'Плагин с ненулевым кодом не дал подтверждённого результата: прочитайте его `.txt`, проверьте формат дампа и доступность Windows symbols. Скрипт не определяет компрометацию автоматически; пустой вывод не доказывает чистоту памяти.',
