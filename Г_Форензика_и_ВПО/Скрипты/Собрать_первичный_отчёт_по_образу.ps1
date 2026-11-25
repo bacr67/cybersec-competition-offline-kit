@@ -180,6 +180,30 @@ if ($isLogicalDirectory) {
     })
 }
 $imageRecords | Export-Csv -LiteralPath (Join-Path $fullOutputPath 'Состав_образа.csv') -NoTypeInformation -Encoding UTF8
+$sidecarHashNote = 'Сопроводительный файл с контрольными суммами не найден.'
+if (-not $isLogicalDirectory -and $resolvedInputs.Count -eq 1 -and -not $imageItem.PSIsContainer) {
+    $sidecarPath = $imageItem.FullName + '.txt'
+    if (Test-Path -LiteralPath $sidecarPath -PathType Leaf) {
+        $sidecarText = Get-Content -LiteralPath $sidecarPath -Raw -Encoding UTF8
+        $hashResults = [System.Collections.Generic.List[string]]::new()
+        foreach ($algorithm in @('MD5','SHA1')) {
+            $expectedLength = if ($algorithm -eq 'MD5') { 32 } else { 40 }
+            $expectedMatch = [regex]::Match($sidecarText, "(?im)^\s*$algorithm checksum:\s*([0-9a-f]{$expectedLength})")
+            if (-not $expectedMatch.Success) { continue }
+            $expectedHash = $expectedMatch.Groups[1].Value.ToUpperInvariant()
+            $actualHash = (Get-FileHash -LiteralPath $imageItem.FullName -Algorithm $algorithm).Hash.ToUpperInvariant()
+            $matchesHash = $expectedHash -eq $actualHash
+            $hashResults.Add("$algorithm $(if ($matchesHash) { 'совпадает' } else { 'НЕ СОВПАДАЕТ' })")
+            if (-not $matchesHash) {
+                Add-Finding -Category "Контрольная сумма $algorithm" -Priority 'Высокий' -Confidence 'Высокий' `
+                    -Evidence "Ожидалось $expectedHash по файлу $sidecarPath; получено $actualHash." `
+                    -Description 'Вычисленная контрольная сумма не совпала со значением из сопроводительного файла.' `
+                    -NextStep 'Проверь, что выбран исходный сегмент и правильный сопроводительный файл; сохрани оба значения и не меняй источник.'
+            }
+        }
+        if ($hashResults.Count -gt 0) { $sidecarHashNote = "$($hashResults -join '; ') (по значениям из $sidecarPath)." }
+    }
+}
 
 $imageInfoPath = Join-Path $fullOutputPath 'Сведения_об_образе.txt'
 $imageInfoExit = 0
@@ -188,6 +212,14 @@ if ($isLogicalDirectory) {
 }
 else {
     $imageInfoExit = Invoke-ReadOnlyTool -Executable $imageInfoExe -Arguments (Add-ImageOptions @($imageFiles[0].FullName)) -OutputFile $imageInfoPath
+}
+$imageInfoText = Get-Content -LiteralPath $imageInfoPath -Raw -Encoding UTF8
+$unsupportedAd1 = $imageInfoText -match '(?is)TSK Support:\s*No\s*\(Custom Content Image \(AD1\)\)'
+if ($unsupportedAd1) {
+    Add-Finding -Category 'Формат AD1 не поддерживается' -Priority 'Средний' -Confidence 'Высокий' `
+        -Evidence 'Sleuth Kit сообщил: TSK Support: No (Custom Content Image (AD1)). Контейнер и его содержимое не были разобраны.' `
+        -Description 'Получен только SHA-256 контейнера. Нулевое число разделов или совпадений эвристик здесь не является результатом анализа файлов.' `
+        -NextStep 'Открой копию в инструменте, который явно поддерживает FTK AD1, и экспортируй выбранные файлы в отдельную рабочую папку; затем передай папку этому скрипту с -ImageType logical.'
 }
 if ($imageInfoExit -ne 0) {
     Add-Finding -Category 'Формат образа' -Priority 'Средний' -Confidence 'Средний' `
@@ -330,7 +362,7 @@ $findingMarkdown = if ($findings.Count -eq 0) {
     }) -join "`r`n`r`n"
 }
 $hashNote = if ($isLogicalDirectory) { 'SHA-256 для всех файлов логического источника этим скриптом не рассчитывается.' } elseif ($SkipHash) { 'Хэширование пропущено параметром -SkipHash.' } else { 'SHA-256 вычислен для каждого указанного сегмента.' }
-$imageTypeNote = if ($ImageType -eq 'Auto') { 'Автоопределение Sleuth Kit' } else { $ImageType }
+$imageTypeNote = if ($unsupportedAd1) { 'AD1 (Sleuth Kit сообщает, что формат не поддерживается)' } elseif ($ImageType -eq 'Auto') { 'Автоопределение Sleuth Kit' } else { $ImageType }
 $sectorNote = "Размер сектора: $SectorSize байт; смещение: $(if ($Offset -ge 0) { $Offset } else { 'авто/по таблице разделов' }) секторов; часовой пояс: $(if ($TimeZone) { $TimeZone } else { 'не задан' })."
 $timeZoneReportNote = if ($TimeZone) { "Часовой пояс передан в fls: $TimeZone. Проверь правильность и учёт летнего времени." } else { 'Часовой пояс fls не задан; проверь временные метки в Autopsy.' }
 $logicalSourceNote = if ($isLogicalDirectory) { 'Логический сбор не содержит свободного пространства и удалённых секторов; отдельные файлы не хэшируются этим скриптом.' } else { '' }
@@ -347,6 +379,7 @@ $report = @"
 - Формат: $imageTypeNote. $sectorNote
 - Режим перечисления файлов: $(if ($MetadataOnly) { 'только верхний уровень, без рекурсии' } else { 'рекурсивно' })
 - Хэширование: $hashNote
+- Сверка хэшей по сопроводительному файлу: $sidecarHashNote
 - $timeZoneReportNote
 - Ограничение: автоматические совпадения по именам и путям являются только подсказками для ручной проверки.
 $(if ($isLogicalDirectory) { '- Источник — логический сбор файлов: свободное пространство, нераспределённые сектора и удалённые данные отсутствуют.' })
@@ -381,7 +414,7 @@ $findingMarkdown
 
 ## Следующие действия аналитика
 
-1. Открой образ в Autopsy; выбери правильный часовой пояс, проверь целостность источника и дождись построения временной шкалы.
+1. $(if ($unsupportedAd1) { 'Текущий скрипт не разбирает контейнер AD1. Импортируй копию в инструмент с явной поддержкой FTK AD1; после экспорта файлов передай папку скрипту как -ImageType logical.' } else { 'Открой образ в Autopsy; выбери правильный часовой пояс, проверь целостность источника и дождись построения временной шкалы.' })
 2. Сверь подозрительные пути с содержимым файла, временными метками, владельцем, подписью и SHA-256. Имя и расположение сами по себе не доказывают вредоносность.
 3. Проверь кусты реестра через Registry Explorer, события и артефакты Windows через инструменты Eric Zimmerman, сопоставь с Prefetch, LNK, Amcache, USN/MFT и журналами.
 4. Не запускай найденные программы. Экспортируй только копии в отдельную рабочую папку; динамический анализ выполняй только в изолированной среде соревнования.
@@ -426,7 +459,7 @@ body{font:16px/1.55 Segoe UI,Arial,sans-serif;max-width:1100px;margin:32px auto;
 <section><h2>Разделы</h2><p>Полный вывод: <code>Таблица_разделов.txt</code>; код завершения mmls: $mmlsExit.</p><table><tr><th>Слот</th><th>Начальный сектор</th><th>Длина, секторов</th><th>Описание</th></tr>$($partitionRowsHtml -join "`n")</table></section>
 <section><h2>Файловые системы</h2><table><tr><th>Слот</th><th>Начальный сектор</th><th>Определение</th><th>Код</th></tr>$($filesystemRowsHtml -join "`n")</table><p>Полные выводы лежат в файлах <code>ФС_раздел_*.txt</code> и <code>Список_файлов_*.txt</code>.</p></section>
 <section><h2>Кандидаты на проверку</h2><p>Совпадений эвристик: $automaticFindings. Предупреждений чтения/формата: $($findings.Count - $automaticFindings).</p>$($findingCardsHtml -join "`n")</section>
-<section><h2>Дальнейшие шаги</h2><ol><li>Открой образ в Autopsy, проверь временную зону и целостность источника.</li><li>Сверь каждый путь с содержимым файла, хэшем, подписью, Prefetch, Amcache, реестром и журналами.</li><li>Используй Registry Explorer и инструменты Eric Zimmerman для анализа экспортированных артефактов.</li><li>Не запускай найденные файлы; работай с копиями в отдельной папке.</li></ol><p class="quiet">Скрипт не читает содержимое каждого файла, не разбирает кусты реестра, не определяет факт запуска и не выносит вердикт о компрометации. Отсутствие совпадений не означает, что образ чист.</p></section>
+<section><h2>Дальнейшие шаги</h2><ol><li>$(if ($unsupportedAd1) { 'Текущий скрипт не разбирает контейнер AD1. Импортируй копию в инструмент с явной поддержкой FTK AD1.' } else { 'Открой образ в Autopsy, проверь временную зону и целостность источника.' })</li><li>Сверь каждый путь с содержимым файла, хэшем, подписью, Prefetch, Amcache, реестром и журналами.</li><li>Используй Registry Explorer и инструменты Eric Zimmerman для анализа экспортированных артефактов.</li><li>Не запускай найденные файлы; работай с копиями в отдельной папке.</li></ol><p class="quiet">Скрипт не читает содержимое каждого файла, не разбирает кусты реестра, не определяет факт запуска и не выносит вердикт о компрометации. Отсутствие совпадений не означает, что образ чист.</p></section>
 </body></html>
 "@
 Set-Content -LiteralPath $htmlPath -Value $html -Encoding UTF8

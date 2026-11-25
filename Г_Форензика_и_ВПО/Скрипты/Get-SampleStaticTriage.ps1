@@ -26,7 +26,8 @@ $rows = foreach ($file in $files) {
     $hex = if ($read -gt 0) { [BitConverter]::ToString($buffer,0,$read) } else { '' }
     $magic = if ($read -ge 2 -and $buffer[0] -eq 0x4D -and $buffer[1] -eq 0x5A) {'MZ / возможный Windows PE'} elseif ($read -ge 4 -and $hex.StartsWith('7B-5C-72-74')) {'RTF'} elseif ($hex.StartsWith('25-50-44-46')) {'PDF'} elseif ($hex.StartsWith('50-4B-03-04')) {'Контейнер ZIP'} elseif ($hex.StartsWith('1F-8B')) {'GZIP'} elseif ($hex.StartsWith('7F-45-4C-46')) {'ELF'} else {'Неизвестный/другой формат'}
     $base = [IO.Path]::GetFileNameWithoutExtension($file.Name) -replace '[^A-Za-z0-9._-]','_'
-    $stringFile = Join-Path $out ($base + '_' + $hash.Substring(0,12) + '_strings.txt')
+    $hashSuffix = if ($hash.Length -ge 12) { $hash.Substring(0,12) } else { 'nohash' }
+    $stringFile = Join-Path $out ($base + '_' + $hashSuffix + '_strings.txt')
     $stringStatus = 'strings.exe не найден; только метаданные'
     if (Test-Path -LiteralPath $StringsExe) {
         try { & $StringsExe -n 6 $file.FullName 2>&1 | Set-Content -LiteralPath $stringFile -Encoding UTF8; $stringStatus = $stringFile }

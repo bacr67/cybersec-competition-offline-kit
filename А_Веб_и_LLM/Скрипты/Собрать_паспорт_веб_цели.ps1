@@ -28,7 +28,7 @@ $targets = @(
     [pscustomobject]@{ Path='/.well-known/security.txt'; Purpose='Контакт security.txt' }
 )
 $handler = [System.Net.Http.HttpClientHandler]::new()
-$handler.AllowAutoRedirect = $true
+$handler.AllowAutoRedirect = $false
 $client = [System.Net.Http.HttpClient]::new($handler)
 $client.Timeout = [TimeSpan]::FromSeconds(12)
 $rows = [System.Collections.Generic.List[object]]::new()
@@ -45,7 +45,7 @@ try {
             foreach ($header in $response.Content.Headers) { $headers[$header.Key.ToLowerInvariant()] = ($header.Value -join ', ') }
             $rows.Add([pscustomobject]@{
                 Путь=$target.Path; Назначение=$target.Purpose; Статус=[int]$response.StatusCode
-                КонечныйURL=[string]$response.RequestMessage.RequestUri
+                КонечныйURL=[string]$response.RequestMessage.RequestUri; RedirectLocation=$headers['location']
                 ТипСодержимого=[string]$response.Content.Headers.ContentType
                 РазмерОтветаБайт=if($response.Content.Headers.ContentLength){[long]$response.Content.Headers.ContentLength}else{''}
                 Сервер=$headers['server']; XPoweredBy=$headers['x-powered-by']
@@ -60,7 +60,7 @@ try {
         }
         catch {
             $errorText = $_.Exception.GetBaseException().Message
-            $rows.Add([pscustomobject]@{Путь=$target.Path;Назначение=$target.Purpose;Статус='';КонечныйURL='';ТипСодержимого='';РазмерОтветаБайт='';Сервер='';XPoweredBy='';HSTS=$false;CSP=$false;XContentTypeOptions=$false;XFrameOptions=$false;ReferrerPolicy=$false;PermissionsPolicy=$false;Ошибка=$errorText})
+            $rows.Add([pscustomobject]@{Путь=$target.Path;Назначение=$target.Purpose;Статус='';КонечныйURL='';RedirectLocation='';ТипСодержимого='';РазмерОтветаБайт='';Сервер='';XPoweredBy='';HSTS=$false;CSP=$false;XContentTypeOptions=$false;XFrameOptions=$false;ReferrerPolicy=$false;PermissionsPolicy=$false;Ошибка=$errorText})
         }
         finally { if($response){$response.Dispose()};$request.Dispose() }
     }
